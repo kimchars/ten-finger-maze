@@ -1,0 +1,17 @@
+# 의존성
+node_modules/
+
+# Firebase 캐시 및 로그
+.firebase/
+*-debug.log*
+.firebaserc
+
+# OS 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 에디터
+.vscode/
+.idea/
+*.swp
