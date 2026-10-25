@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>열 손가락 미로 (Ten-Finger Maze)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+<div id="root">
+  <canvas id="gl" aria-label="3D 미로 게임 화면"></canvas>
+  <div class="vignette"></div>
+  <div class="danger" id="danger"></div>
+  <div class="flash" id="flash"></div>
+
+  <div class="ov" id="ov"></div>
+
+  <div class="top">
+    <div class="brand">
+      <div class="logo"><em>열</em> 손가락 미로</div>
+      <div class="stg" id="stageLabel">P1은 길을 찾고, P2는 문을 열어요.</div>
+      <div class="perf" id="perfInfo" hidden></div>
+    </div>
+    <div class="topright">
+      <div class="stats">
+        <div class="stat"><span>시간</span><b id="sTime">00:00.0</b></div>
+        <div class="stat"><span>걸음</span><b id="sSteps">0</b></div>
+        <div class="stat"><span>잡힘</span><b id="sCaught">0</b></div>
+        <div class="stat"><span>밀려남</span><b id="sPush">0</b></div>
+        <div class="stat"><span>빠짐</span><b id="sFall">0</b></div>
+        <div class="stat race" id="sRaceBox" hidden><span>레이스 합계</span><b id="sRace">00:00.0</b></div>
+      </div>
+      <button class="btn" id="setBtn" type="button" aria-expanded="false">설정</button>
+      <button class="btn" id="homeBtn" type="button">메뉴 (Esc)</button>
+      <button class="btn" id="resetBtn" type="button">다시 (R)</button>
+    </div>
+  </div>
+
+  <div class="toast" id="msg" hidden></div>
+  <div class="hint" id="hint"></div>
+  <div class="lost" id="lostWarn" hidden><b id="lostTitle">P2 손이 안 보여요</b><span>카메라 화면 안으로 손을 보여 주세요</span></div>
+
+  <div class="settings" id="settings" hidden>
+    <h4>설정</h4>
+    <div class="line"><span id="calStat">손 보정 전 · 기본값 사용 중</span><button class="btn" id="calBtn" type="button">손 맞추기</button></div>
+    <label for="sensSlider">인식 기준 (낮을수록 조금만 구부려도 인식)<output id="sensOut">60%</output>
+      <input type="range" id="sensSlider" min="35" max="85" step="1" value="60">
+    </label>
+    <div class="line"><span>그래픽 품질</span><span class="seg"><button type="button" id="qHigh">높음</button><button type="button" id="qLow">낮음</button></span></div>
+    <div class="line"><span>소리</span><button class="btn" id="muteBtn" type="button" aria-pressed="false">켜짐 (M)</button></div>
+    <div class="line"><span>성능 표시 (화면·손 인식 속도)</span><button class="btn" id="perfBtn" type="button" aria-pressed="false">꺼짐 (F)</button></div>
+    <div class="keys">카메라 없이 테스트: P1 <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 이동, <kbd>Space</kbd> 랜턴 끄기 · P2 <kbd>1</kbd>~<kbd>5</kbd> 엄지~새끼, <kbd>P</kbd> 소나 핑, <kbd>T</kbd> 덫 · <kbd>Enter</kbd> 다음으로</div>
+  </div>
+
+  <div class="bottom">
+    <div class="hand p1">
+      <h3><span class="who">P1 · 탐험가</span><small>화면 왼쪽 손</small></h3>
+      <div id="rowsP1"></div>
+    </div>
+    <div class="cam" id="camBox">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="half l">P1</div>
+      <div class="half r">P2</div>
+      <button class="fold" id="camFold" type="button" title="카메라 화면 접기/펴기 (C)">접기 C</button>
+      <div class="empty" id="camEmpty">
+        <p id="camText">웹캠 하나로 두 사람의 손을 인식해요.</p>
+        <div><button class="btn primary" id="camBtn" type="button">카메라 켜기</button></div>
+      </div>
+    </div>
+    <div class="hand p2">
+      <h3><span class="who">P2 · 문지기</span><small>화면 오른쪽 손</small></h3>
+      <div class="need" id="needBox"><span class="nlbl">근처에 철창·다리가 없어요</span></div>
+      <div class="sonar" id="sonarBox">
+        <canvas id="radar" width="184" height="184" aria-label="레이더"></canvas>
+        <div class="info">
+          <div class="lbl">소나 핑 <span class="pips" id="pips"></span></div>
+          <div class="stxt" id="sonarTxt">손을 활짝 폈다가 주먹을 쥐면 발사</div>
+          <div class="lbl" id="trapRow" hidden>덫 <span class="pips trap" id="trapPips"></span></div>
+          <div class="stxt" id="trapTxt" hidden>엄지·새끼만 펴면 가까운 괴물 묶기</div>
+        </div>
+      </div>
+      <div id="rowsP2"></div>
+    </div>
+  </div>
+
+  <div class="boot" id="boot"><b>열 손가락 미로</b><span id="bootMsg">던전을 불러오는 중이에요</span></div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

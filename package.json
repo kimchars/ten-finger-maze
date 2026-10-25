@@ -1,0 +1,24 @@
+{
+  "name": "ten-finger-maze",
+  "version": "1.0.0",
+  "description": "2인 협동 웹캠 손가락 인식 3D 미로 탈출 게임 (Three.js + MediaPipe + Firebase)",
+  "type": "module",
+  "scripts": {
+    "start": "npx -y serve public -l 5000",
+    "dev": "npx -y firebase-tools@latest emulators:start --only hosting,firestore,auth",
+    "deploy": "npx -y firebase-tools@latest deploy",
+    "deploy:hosting": "npx -y firebase-tools@latest deploy --only hosting",
+    "deploy:rules": "npx -y firebase-tools@latest deploy --only firestore:rules"
+  },
+  "keywords": [
+    "threejs",
+    "mediapipe",
+    "hand-tracking",
+    "webcam-game",
+    "firebase",
+    "coop-game",
+    "webgl"
+  ],
+  "author": "",
+  "license": "MIT"
+}

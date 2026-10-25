@@ -1,0 +1,66 @@
+rules_version = '2';
+
+/**
+ * 열 손가락 미로 (Ten-Finger Maze) - Cloud Firestore 보안 규칙
+ * 
+ * 데이터 모델:
+ * - collection: leaderboard
+ *   - document fields:
+ *     - name: string (1~12자 이내 팀명)
+ *     - time: number (밀리초 탈출 시간, 1초 이상)
+ *     - deaths: int (잡힘+빠짐 죽음 횟수, 0 이상)
+ *     - at: number (타임스탬프)
+ *     - uid: string (인증 유저 UID 또는 'anonymous')
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // === 공통 헬퍼 함수 ===
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // 순위표 문서 스키마 및 위변조 방지 유효성 검사
+    function isValidLeaderboardEntry() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['name', 'time', 'deaths', 'at', 'uid']) &&
+             data.keys().hasOnly(['name', 'time', 'deaths', 'at', 'uid']) &&
+             data.name is string &&
+             data.name.size() >= 1 &&
+             data.name.size() <= 12 &&
+             data.time is number &&
+             data.time >= 1000 &&
+             data.deaths is int &&
+             data.deaths >= 0 &&
+             data.at is number &&
+             data.at > 0 &&
+             data.uid is string &&
+             (data.uid == request.auth.uid || data.uid == 'anonymous');
+    }
+
+    // === 순위표 컬렉션 규칙 ===
+    match /leaderboard/{scoreId} {
+      // 누구나 순위표를 조회할 수 있습니다.
+      allow read: if true;
+
+      // 익명 또는 소셜 인증된 유저만 검증된 스키마로 점수를 등록할 수 있습니다.
+      allow create: if isAuthenticated() && isValidLeaderboardEntry();
+
+      // 등록된 기록은 위변조 방지를 위해 수정할 수 없습니다 (불변 데이터).
+      allow update: if false;
+
+      // 작성자 본인만 자신의 기록을 삭제할 수 있습니다.
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
+    // 그 외 모든 경로 기본 차단
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
