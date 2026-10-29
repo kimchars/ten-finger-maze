@@ -117,10 +117,12 @@ export function sync3D(now, dt, world, game, screen, glCanvas, dangerEl, doorIsO
 
   // 5. 다리 부상/침강
   for (const b2 of world.bridges) {
-    const up = bridgeUpFn(b2.ch) ? 1 : 0;
+    const life = Number(bridgeUpFn(b2.ch)) || 0; // 남은 시간 비율 (0이면 없음)
+    const up = life > 0 ? 1 : 0;
     b2.o += (up - b2.o) * Math.min(1, dt / 110);
     b2.g.position.y = -0.32 * (1 - b2.o);
-    b2.em.emissiveIntensity = 0.5 + b2.o * 1.6 + Math.sin(now / 280) * 0.15;
+    const blink = life > 0 && life < 0.34 ? (Math.sin(now / 60) > 0 ? 1 : 0.2) : 1; // 사라지기 1초 전 깜빡임
+    b2.em.emissiveIntensity = (0.5 + b2.o * 1.6 + Math.sin(now / 280) * 0.15) * blink;
     b2.lb.material.opacity = 0.85 + b2.o * 0.15;
   }
 
@@ -158,14 +160,14 @@ export function sync3D(now, dt, world, game, screen, glCanvas, dangerEl, doorIsO
     const m = world.monsters[i];
     const kk = ease((now - gd.moveT) / 320);
     const from = world.Wto(world.tA, gd.from[0], gd.from[1]);
-    const to = world.Wto(world.tB, gd.path[gd.i][0], gd.path[gd.i][1]);
+    const to = world.Wto(world.tB, gd.cell[0], gd.cell[1]);
     m.g.position.lerpVectors(from, to, kk);
 
     if (from.distanceToSquared(to) > 0.01) {
       m.yaw = lerpAngle(m.yaw, Math.atan2(to.x - from.x, to.z - from.z), Math.min(1, dt / 120));
     }
 
-    const dGrid = Math.abs(gd.path[gd.i][0] - game.pos[0]) + Math.abs(gd.path[gd.i][1] - game.pos[1]);
+    const dGrid = Math.abs(gd.cell[0] - game.pos[0]) + Math.abs(gd.cell[1] - game.pos[1]);
     const frozen = now < gd.frozenUntil;
     if (!frozen) near = Math.min(near, dGrid);
 
@@ -182,7 +184,14 @@ export function sync3D(now, dt, world, game, screen, glCanvas, dangerEl, doorIsO
     }
 
     const tm = frozen ? m.tFrozen : now;
-    const see = screen === "play" && !hiding && !game.won && !frozen && dGrid <= 2;
+    const chasing = gd.mode === "chase";
+    const see = screen === "play" && !hiding && !game.won && !frozen && (dGrid <= 2 || chasing);
+    // 감지 범위 원: 평소엔 은은하게, 쫓아올 때는 진하게
+    if (m.sense) {
+      const want = screen === "play" && !game.won ? (chasing ? 0.55 : gd.mode === "search" ? 0.35 : 0.16) : 0;
+      m.sense.material.opacity += (want - m.sense.material.opacity) * Math.min(1, dt / 150);
+      m.sense.position.set(m.g.position.x, 0.035, m.g.position.z);
+    }
     if (see) {
       m.yaw = lerpAngle(
         m.yaw,
@@ -368,7 +377,7 @@ function syncSonar(now, world, game, exitCellFn, radarBlips) {
         fx.emit(m.x, 0.7, m.z, Math.cos(a) * 1.2, 0.8 + Math.random(), Math.sin(a) * 1.2, 0xff3020, 1.0, -1);
       }
       if (radarBlips) {
-        radarBlips.push({ kind: "mon", cell: [...gd.path[gd.i]], t: now, strong: true });
+        radarBlips.push({ kind: "mon", cell: [...gd.cell], t: now, strong: true });
       }
     }
   });

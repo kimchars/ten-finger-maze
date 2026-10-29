@@ -7,6 +7,7 @@ import {
   DEFAULT_RANGE,
   MIN_RANGE,
   WEAK_RATIO,
+  LOST_MS,
   FINGER,
   FCOL,
 } from "../config.js";
@@ -54,6 +55,7 @@ export async function startCalib(returnTo = "title") {
       2: { open: null, closed: [null, null, null, null, null] },
     },
     returnTo,
+    startedAt: performance.now(),
   };
   renderCalStep();
 }
@@ -105,7 +107,8 @@ export function calTick(now, currentScreen) {
   const el = (id) => document.getElementById(id);
 
   for (const p of [1, 2]) {
-    const seen = now - trk[p].seen < 150;
+    // 손 인식이 느린 노트북(1회 150ms 이상)에서도 손이 계속 보이는 것으로 판단하도록 여유를 둬요.
+    const seen = now - trk[p].seen < LOST_MS;
     const s = el(`calSeen${p}`);
     if (s) s.textContent = seen ? "손 인식 중" : "손이 안 보여요";
     const b = el(`calBar${p}`);

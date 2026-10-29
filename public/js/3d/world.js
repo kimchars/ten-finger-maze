@@ -17,6 +17,11 @@ export function isDoorCh(game, ch) {
   return !!(game && game.s.doors[ch]);
 }
 
+// 가위바위보 철창: P2가 수문장과 가위바위보를 해서 이겨야 열려요
+export function isRpsCh(game, ch) {
+  return !!(game && game.s.rps && game.s.rps[ch]);
+}
+
 export function isBridge(game, ch) {
   return !!(game && game.s.bridges && game.s.bridges[ch]);
 }
@@ -514,12 +519,35 @@ export function buildWorld(game, si) {
   );
 
   // 철창
+  // 철창 방향: 출발점에서 걸어올 때 들어오는 방향을 보고 정해요.
+  // 왼쪽/오른쪽에서 들어오면 문은 위아래 벽에 붙도록 세로로, 위/아래에서 들어오면 좌우 벽에 붙도록 가로로 세워요.
+  // (예전에는 '좌우가 둘 다 벽인가'만 봐서 모퉁이·갈림길에 있는 철창이 엉뚱한 방향으로 서 있었어요)
+  const enterDir = {};
+  {
+    let sr = -1, sc = -1;
+    map.forEach((row, r) => { const i = row.indexOf("S"); if (i >= 0) { sr = r; sc = i; } });
+    if (sr >= 0) {
+      const seen = new Set([sr + "," + sc]), q = [[sr, sc]];
+      while (q.length) {
+        const [r, c] = q.shift();
+        for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nr = r + dr, nc = c + dc, ch = (map[nr] || "")[nc];
+          if (ch === undefined || ch === "#" || ch === "~" || seen.has(nr + "," + nc)) continue;
+          seen.add(nr + "," + nc);
+          if ((isDoorCh(game, ch) || isRpsCh(game, ch)) && !enterDir[nr + "," + nc]) enterDir[nr + "," + nc] = dc !== 0 ? "h" : "v";
+          q.push([nr, nc]);
+        }
+      }
+    }
+  }
   const doors = {};
   map.forEach((row, r) =>
     [...row].forEach((ch, c) => {
-      if (!isDoorCh(game, ch)) return;
-      const wallLR = map[r][c - 1] === "#" && map[r][c + 1] === "#";
-      const d = makeDoor(doorNeeds(game, ch), wallLR);
+      if (!isDoorCh(game, ch) && !isRpsCh(game, ch)) return;
+      const ent = enterDir[r + "," + c];
+      // acrossX=true: 좌우로 가로막는 문(위아래로 지나감) / false: 위아래로 세운 문(좌우로 지나감)
+      const acrossX = ent ? ent === "v" : map[r][c - 1] === "#" && map[r][c + 1] === "#";
+      const d = makeDoor(isRpsCh(game, ch) ? "rps" : doorNeeds(game, ch), acrossX);
       d.g.position.copy(W(r, c));
       root.add(d.g);
       doors[r + "," + c] = { ...d, ch };
@@ -536,7 +564,8 @@ export function buildWorld(game, si) {
       .reduce((a, x) => a.add(x.g.position), new THREE.Vector3())
       .multiplyScalar(1 / cells.length);
     const needs = doorNeeds(game, d.ch), parts = [];
-    needs.forEach((f, i) => {
+    if (isRpsCh(game, d.ch)) parts.push({ t: "가위바위보", color: "#ffd34d" });
+    else needs.forEach((f, i) => {
       if (i) parts.push({ t: "+", color: "#ffffff" });
       parts.push({ t: FINGER[f], color: FCOL[f] });
     });
@@ -620,6 +649,16 @@ export function buildWorld(game, si) {
   const monsters = game.guards.map((gd, k) => {
     const m = makeMonster(si * 10 + k + 1, TH.mon || DEFAULT_MON);
     root.add(m.g);
+    // 감지 범위: 걸음 수 기준이라 마름모 모양 (가장자리만 진하게)
+    if (game.s.sense && (!game.s.senseOnly || game.s.senseOnly.includes(k))) {
+      const r = game.s.sense + 0.5;
+      m.sense = new THREE.Mesh(
+        new THREE.RingGeometry(r - 0.12, r, 4, 1),
+        new THREE.MeshBasicMaterial({ color: 0xff3a24, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })
+      );
+      m.sense.rotation.x = -Math.PI / 2;
+      root.add(m.sense);
+    }
     return m;
   });
 

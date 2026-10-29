@@ -18,8 +18,9 @@ import {
 } from "./hand/camera.js";
 import { initOverlay, drawOverlay } from "./hand/overlay.js";
 import { registerCalibUI, calTick, startCalib } from "./hand/calibration.js";
-import { game, run, screen, stageIdx, exitCell } from "./game/state.js";
-import { doorIsOpen, bridgeUp, updateGame, firePing, fireTrap } from "./game/logic.js";
+import { game, run, screen, stageIdx, exitCell, setScreen } from "./game/state.js";
+import { doorIsOpen, bridgeLife, updateGame, firePing, fireTrap } from "./game/logic.js";
+import { drawRps } from "./ui/rps.js";
 import { initRadarCanvas, drawRadar, radar } from "./ui/radar.js";
 import { initToastDOM, updateToast, say } from "./ui/toast.js";
 import {
@@ -130,6 +131,7 @@ function syncCalStat() {
 registerCalibUI({
   showOverlay,
   syncCalStat,
+  setScreen, // 빠져 있어서 손 맞추기 화면 상태가 바뀌지 않아 측정이 시작되지 않던 문제 수정
 });
 
 // 민감도 슬라이더 동기화
@@ -281,13 +283,13 @@ function loop() {
     glCanvas,
     dangerEl,
     (ch) => doorIsOpen(game, ch),
-    (ch) => bridgeUp(game, ch),
+    (ch) => bridgeLife(game, ch, now),
     exitCell,
     radar.blips
   );
 
   if (Q === "high") composer.render();
-  else renderer.render(scene, cam);
+  else if (frameNo % 2 === 0) renderer.render(scene, cam); // 낮음: 화면은 30fps, 손 인식에 그래픽 성능 양보
 
   if (isHandFresh()) {
     drawOverlay();
@@ -300,6 +302,7 @@ function loop() {
   }
 
   updateHUD(now, dt, game, run, screen, rowsP1, rowsP2, hudElements, primaryAction);
+  drawRps(now, game, screen);
   perfMeter(now, perfEl);
   perfCheck(now, dt, screen);
   updateToast(now);

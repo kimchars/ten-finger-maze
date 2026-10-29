@@ -180,7 +180,8 @@ function sendFrame(now) {
   lastVideoTime = video.currentTime;
   lastSend = sentAt = now;
   inFlight = true;
-  createImageBitmap(video)
+  // 모델은 어차피 내부에서 작게 줄여서 보니까, 480x360으로 줄여 보내도 정확도는 거의 같아요.
+  createImageBitmap(video, { resizeWidth: 480, resizeHeight: 360, resizeQuality: "low" })
     .then((bmp) => worker.postMessage({ type: "frame", bitmap: bmp, ts: now }, [bmp]))
     .catch(() => {
       inFlight = false;
@@ -223,17 +224,16 @@ export function applyHands(list, now) {
 
   let a = null, b = null;
   if (hands.length === 2) {
+    // 두 손이 다 보이면 항상 화면 왼쪽 손 = P1, 오른쪽 손 = P2.
+    // (예전에는 마지막 위치만 기억해서, 한 번 엇갈리면 스테이지가 바뀌어도 역할이 뒤바뀐 채로 남았어요)
     const [h1, h2] = hands;
-    if (gap(h1, 1) + gap(h2, 2) <= gap(h1, 2) + gap(h2, 1)) {
-      a = h1; b = h2;
-    } else {
-      a = h2; b = h1;
-    }
+    if (h1.mx <= h2.mx) { a = h1; b = h2; } else { a = h2; b = h1; }
   } else if (hands.length === 1) {
+    // 한 손만 보이면: 방금 그 자리에 있던 손이면 그 역할을 이어 가고, 아니면 화면 중앙선 기준으로 정해요.
     const h = hands[0], r1 = recent(1), r2 = recent(2);
-    if (r1 && !r2 && gap(h, 1) < 0.3) a = h;
-    else if (r2 && !r1 && gap(h, 2) < 0.3) b = h;
-    else if (gap(h, 1) <= gap(h, 2)) a = h;
+    if (r1 && !r2 && gap(h, 1) < 0.2) a = h;
+    else if (r2 && !r1 && gap(h, 2) < 0.2) b = h;
+    else if (h.mx < 0.5) a = h;
     else b = h;
   }
 

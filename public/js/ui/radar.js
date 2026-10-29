@@ -67,7 +67,7 @@ export function drawRadar(now, game, screen, exitCellFn) {
       }
     }
     game.guards.forEach((gd) => {
-      const c = gd.path[gd.i];
+      const c = gd.cell;
       if (Math.abs(c[0] - P[0]) + Math.abs(c[1] - P[1]) <= 5 && passed(bearing(c))) {
         radar.blips.push({ kind: now < gd.frozenUntil ? "ice" : "mon", cell: [...c], t: now });
       }

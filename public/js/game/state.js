@@ -118,6 +118,8 @@ export function loadStage(i, live) {
         d: 1,
         last: 0,
         from: path[idx],
+        cell: [...path[idx]], // 지금 있는 칸 (추격 중에는 순찰 경로 밖일 수 있어요)
+        mode: "patrol", // patrol 순찰 / chase 추격 / search 두리번 / return 복귀
         moveT: 0,
         frozenUntil: 0,
       };

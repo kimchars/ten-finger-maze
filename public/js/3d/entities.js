@@ -292,6 +292,9 @@ export function makeMonster(seed, MC = DEFAULT_MON) {
 
 export function makeDoor(needs, acrossX) {
   const g = new THREE.Group();
+  const rps = needs === "rps"; // 가위바위보 철창은 금색
+  if (rps) needs = [];
+  const RPS_COL = 0xffc93a;
   const at = (geo, x, y) => geo.translate(x, y, 0);
 
   const frame = new THREE.Mesh(
@@ -309,11 +312,11 @@ export function makeDoor(needs, acrossX) {
   const bars = new THREE.Group();
   g.add(bars);
 
-  const mats = needs.map(
-    (f) =>
+  const mats = (rps ? [RPS_COL] : needs.map((f) => FCOL[f])).map(
+    (col) =>
       new THREE.MeshStandardMaterial({
-        color: FCOL[f],
-        emissive: FCOL[f],
+        color: col,
+        emissive: col,
         emissiveIntensity: 2.2,
         roughness: 0.3,
         metalness: 0.4,
@@ -341,7 +344,7 @@ export function makeDoor(needs, acrossX) {
     new THREE.PlaneGeometry(1.7, 1.7),
     new THREE.MeshBasicMaterial({
       map: shared.ringTex,
-      color: FCOL[needs[0]],
+      color: rps ? RPS_COL : FCOL[needs[0]],
       transparent: true,
       opacity: 0.6,
       depthWrite: false,
@@ -439,16 +442,17 @@ export function makeTorch() {
 }
 
 export function makeBats() {
+  // 저사양(그래픽 품질 '낮음', 해상도 자동 축소)에서도 보이도록 몸집을 키우고 스스로 빛나게 했어요.
   const geo = mergeGeos([
-    new THREE.SphereGeometry(0.045, 6, 5).scale(1, 0.8, 1.4),
-    new THREE.BoxGeometry(0.17, 0.012, 0.09).translate(0.1, 0, 0),
-    new THREE.BoxGeometry(0.17, 0.012, 0.09).translate(-0.1, 0, 0),
+    new THREE.SphereGeometry(0.065, 6, 5).scale(1, 0.8, 1.4),
+    new THREE.BoxGeometry(0.24, 0.02, 0.13).translate(0.14, 0, 0),
+    new THREE.BoxGeometry(0.24, 0.02, 0.13).translate(-0.14, 0, 0),
   ]);
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x1c1822,
+    color: 0x3a3048,
     roughness: 0.7,
-    emissive: 0x3a0a0a,
-    emissiveIntensity: 0.6,
+    emissive: 0xb02a2a,
+    emissiveIntensity: 0.9,
   });
   const im = new THREE.InstancedMesh(geo, mat, 7);
   im.castShadow = true;

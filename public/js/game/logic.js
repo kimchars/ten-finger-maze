@@ -6,19 +6,24 @@ import {
   INVULN_MS,
   BAT_MS,
   GUARD_MS,
+  CHASE_MS,
+  ALERT_MS,
+  SEARCH_MS,
+  DAZE_MS,
+  LEASH,
   FREEZE_MS,
   TRAP_RANGE,
   PING_WINDOW,
   FINGER,
   FCOL,
 } from "../config.js";
-import { on, amtOf, keyP2 } from "../input.js";
+import { on, amtOf, allOn, keyP2, keyTapP1, keyTapP2 } from "../input.js";
 import { trk, sens } from "../hand/tracker.js";
 import { camOn } from "../hand/camera.js";
 import { SFX } from "../audio.js";
 import { shake } from "../3d/camera.js";
 import { fx } from "../3d/particles.js";
-import { isDoorCh, isBridge, doorNeeds, bridgeNeeds } from "../3d/world.js";
+import { isDoorCh, isBridge, isRpsCh, doorNeeds, bridgeNeeds } from "../3d/world.js";
 import { isBlock, cellAt, same, exitCell } from "./state.js";
 import { say, setHint, clearHint } from "../ui/toast.js";
 
@@ -37,6 +42,7 @@ export function strayFingers(need) {
 }
 
 export function doorIsOpen(game, ch) {
+  if (isRpsCh(game, ch)) return rpsOpen(game, ch);
   const n = doorNeeds(game, ch);
   for (let k = 0; k < n.length; k++) {
     if (!on(2, n[k])) return false;
@@ -56,11 +62,216 @@ export const p2Count = () => {
   return n;
 };
 
-export const bridgeUp = (game, ch) =>
-  p2Count() <= 2 && bridgeNeeds(game, ch).every((f) => on(2, f));
+// 다리(울타리) 리듬 규칙
+// - P2가 다리 칸의 손가락을 '접는 순간' 그 칸에 다리가 한 칸 생기고, 3초 뒤 사라져요.
+// - P1이 그 다리에 올라서면 그때부터 다시 3초. 3초 안에 다음 칸으로 가지 않으면 다리가 사라지며 빠져요.
+// - 다시 만들려면 손가락을 폈다가 다시 접어야 해요. (손가락 3개 이상 접으면 만들어지지 않아요)
+// - 다리가 없는 물(용암) 칸으로 걸어 들어가면 빠지고, 다리 앞으로 돌아가요.
+export const BRIDGE_MS = 3000;
+const bridgeCond = (game, ch) => p2Count() <= 2 && bridgeNeeds(game, ch).every((f) => on(2, f));
+const bridgeT = (game) => (game.bridgeT ||= {});
+const bridgeArm = (game) => (game.bridgeArm ||= {});
+export const bridgeLife = (game, ch, now = performance.now()) => {
+  const t = bridgeT(game)[ch];
+  if (t === undefined) return 0;
+  const left = 1 - (now - t) / BRIDGE_MS;
+  return left > 0 ? left : 0;
+};
+export const bridgeUp = (game, ch, now) => bridgeLife(game, ch, now) > 0;
+function updateBridges(game, now) {
+  if (!game.s.bridges) return;
+  const T = bridgeT(game), A = bridgeArm(game);
+  for (const ch of Object.keys(game.s.bridges)) {
+    const c = bridgeCond(game, ch);
+    const tapped = p2Count() <= 2 && bridgeNeeds(game, ch).every((f) => on(2, f) || keyTapP2[f] > 0);
+    if (!c && !tapped) A[ch] = true;
+    else if (A[ch] !== false || (!c && tapped)) {
+      A[ch] = false;
+      T[ch] = now; // 손가락을 접은 순간 한 칸 생성
+    }
+  }
+}
+
+// ── 가위바위보 철창 ──
+// P1이 금색 철창 쪽으로 가면 수문장이 가위바위보를 걸어와요. "가위… 바위… 보!"에 맞춰 P2가 손 모양을 내요.
+// 엄지는 보지 않아요(접든 펴든 상관없음). 검지·중지·약지·새끼 4개로 판정해요.
+//   바위 = 4개 모두 접기 / 보 = 4개 모두 펴기 / 가위 = 검지·중지 펴고 약지·새끼 접기
+// 이기면 1승(정해진 횟수를 이기면 열림), 비기거나 손 모양이 안 보이면 다시, 지면 P1이 한 칸 밀려나요.
+export const RPS_CALL = 520; // 가위 → 바위 → 보 박자 간격
+export const RPS_JUDGE = 600; // "보!" 뒤 이 시간까지 낸 손으로 판정 (느린 노트북 인식 지연 포함)
+export const RPS_HOLD = 140; // 이만큼 유지된 손 모양만 인정 (인식이 한 번 튀는 것 방지)
+export const RPS_SHOW = 1500; // 결과 보여주는 시간
+export const RPS_ICON = { rock: "✊", scissors: "✌️", paper: "✋" };
+export const RPS_NAME = { rock: "바위", scissors: "가위", paper: "보" };
+const BEATS = { rock: "scissors", scissors: "paper", paper: "rock" }; // 왼쪽이 오른쪽을 이김
+const WINNER = { rock: "paper", scissors: "rock", paper: "scissors" }; // 이 손을 이기는 손
+const ORDER = ["rock", "scissors", "paper"];
+
+export function p2Shape() {
+  const b = [1, 2, 3, 4].map((i) => !!on(2, i));
+  if (b.every((x) => x)) return "rock";
+  if (b.every((x) => !x)) return "paper";
+  if (!b[0] && !b[1] && b[2] && b[3]) return "scissors";
+  return null;
+}
+
+export const rpsWins = (game, ch) => (game.rpsWon && game.rpsWon[ch]) || 0;
+export const rpsOpen = (game, ch) => rpsWins(game, ch) >= (game.s.rps[ch].wins || 1);
+export const rpsHist = (game, ch) => ((game.rpsHist ||= {})[ch] ||= []);
+
+// 수문장 성격 — 눈치채면 이길 수 있어요
+// rock: 바위만 냄 / cycle: 바위→가위→보 순서대로 / copy: P2가 직전에 낸 손을 따라 냄
+// counter: P2가 직전에 낸 손을 이기는 손을 냄 / random: 무작위
+function gatePick(ai, hist) {
+  const last = hist[hist.length - 1];
+  if (ai === "rock") return "rock";
+  if (ai === "cycle") return ORDER[hist.length % 3];
+  if (ai === "copy") return last ? last.me : "rock";
+  if (ai === "counter") return last ? WINNER[last.me] : "paper";
+  return ORDER[Math.floor(Math.random() * 3)];
+}
+
+function startRps(game, ch, now) {
+  game.rps = { ch, at: [...game.pos], t0: now + 450, beat: -1, phase: "count", shape: null, since: now, pick: null };
+  game.fistArmed = false;
+  const need = game.s.rps[ch].wins || 1;
+  say(`수문장이 가위바위보를 걸어왔어요! P2가 ${need > 1 ? `${need}번 ` : ""}이기면 열려요.`, 2400);
+}
+
+function updateRps(game, now, world) {
+  const r = game.rps;
+  if (!r) return;
+  if (!same(game.pos, r.at) || game.won) {
+    game.rps = null; // P1이 자리를 떠나면 대결 취소
+    return;
+  }
+  const t = now - r.t0;
+  if (r.phase === "count") {
+    const beat = t < 0 ? -1 : Math.min(2, Math.floor(t / RPS_CALL));
+    if (beat > r.beat) {
+      r.beat = beat;
+      beat < 2 ? SFX.tick() : SFX.bump();
+    }
+    const sh = p2Shape();
+    if (sh !== r.shape) {
+      r.shape = sh;
+      r.since = now;
+    }
+    // "보!" 직전부터 판정 끝까지, 충분히 유지된 가장 최근 손 모양을 고름
+    if (r.shape && t >= 2 * RPS_CALL - 160 && now - r.since >= RPS_HOLD) r.pick = r.shape;
+    if (t < 2 * RPS_CALL + RPS_JUDGE) return;
+
+    const cfg = game.s.rps[r.ch], hist = rpsHist(game, r.ch);
+    r.phase = "show";
+    r.tShow = now;
+    if (!r.pick) {
+      r.result = "invalid";
+      SFX.empty();
+      return;
+    }
+    // 같은 철창에서 mercy번 지면 수문장이 지쳐서 져 줘요 (시연에서 한 팀이 너무 오래 막히지 않게)
+    const lost = (game.rpsLoseAt ||= {})[r.ch] || 0;
+    const tired = cfg.mercy && lost >= cfg.mercy;
+    const gate = tired ? BEATS[r.pick] : gatePick(cfg.ai, hist);
+    r.tired = tired;
+    r.me = r.pick;
+    r.gate = gate;
+    hist.push({ me: r.me, gate });
+    game.rpsRounds = (game.rpsRounds || 0) + 1;
+    r.result = r.me === gate ? "draw" : BEATS[r.me] === gate ? "win" : "lose";
+    if (r.result === "win") {
+      (game.rpsWon ||= {})[r.ch] = rpsWins(game, r.ch) + 1;
+      if (rpsOpen(game, r.ch)) {
+        SFX.open();
+        SFX.freeze();
+        if (world) fx.burst(world.W(...r.at), 50, [0xffc93a, 0xfff2b0, 0xffffff], 2.2);
+      } else SFX.light();
+    } else if (r.result === "lose") {
+      game.rpsLose = (game.rpsLose || 0) + 1;
+      game.rpsLoseAt[r.ch] = lost + 1;
+      const back = game.trail[game.trail.length - 1];
+      const bch = back && cellAt(back);
+      if (back && !same(back, game.pos) && !isDoorCh(game, bch) && !isBridge(game, bch) && !isRpsCh(game, bch)) {
+        game.from = [...game.pos];
+        game.moveT = now;
+        game.pos = [...back];
+        game.prev = [...back];
+        game.lastSafe = [...back];
+        game.trail = game.trail.slice(0, Math.max(1, game.trail.length - 1));
+        r.at = [...back];
+      }
+      game.push++;
+      shake(260, 0.2);
+      SFX.push();
+    } else SFX.tick();
+    return;
+  }
+  // 결과 표시가 끝나면: 열렸거나 졌으면 대결 끝, 비김·1승·무효면 바로 다음 판
+  if (now - r.tShow < RPS_SHOW) return;
+  if (r.result === "lose" || rpsOpen(game, r.ch)) {
+    game.rps = null;
+    if (r.result !== "lose") say("수문장을 이겼어요! 금색 철창이 열렸어요.", 2200);
+    return;
+  }
+  game.rps = { ...r, t0: now + 250, beat: -1, phase: "count", shape: null, since: now, pick: null, result: null };
+}
 
 export const fingerNames = (list) => list.map((f) => FINGER[f]).join("+");
 export const doorName = (game, ch) => doorNeeds(game, ch).map((f) => FINGER[f]).join("+");
+
+// 괴물 감지 범위: 스테이지의 sense, senseOnly가 있으면 그 번호의 괴물만 감지해요
+export const guardSense = (game, k) => {
+  const s = game.s;
+  if (!s.sense) return 0;
+  return !s.senseOnly || s.senseOnly.includes(k) ? s.sense : 0;
+};
+
+// 괴물이 걸을 수 있는 칸: 바닥(.), 출발(S), 출구(E). 철창·다리·물·벽은 못 지나가요.
+const guardWalk = (ch) => ch === "." || ch === "S" || ch === "E";
+// a에서 b까지 괴물 걸음 수 (limit보다 멀면 Infinity). b가 철창·다리 칸이어도 도착은 인정.
+export function guardDist(game, a, b, limit) {
+  if (same(a, b)) return 0;
+  const seen = new Set([a[0] * 100 + a[1]]);
+  let front = [a];
+  for (let d = 1; d <= limit; d++) {
+    const nxt = [];
+    for (const c of front) {
+      for (let k = 1; k <= 4; k++) {
+        const n = [c[0] + DIRS[k][0], c[1] + DIRS[k][1]];
+        if (same(n, b)) return d;
+        const key = n[0] * 100 + n[1];
+        if (seen.has(key) || !guardWalk(cellAt(n))) continue;
+        seen.add(key);
+        nxt.push(n);
+      }
+    }
+    front = nxt;
+  }
+  return Infinity;
+}
+// a에서 b로 가는 첫 걸음 (없으면 null)
+function guardStep(game, a, b) {
+  if (same(a, b)) return null;
+  const prev = new Map([[a[0] * 100 + a[1], null]]), q = [a];
+  while (q.length) {
+    const c = q.shift();
+    for (let k = 1; k <= 4; k++) {
+      const n = [c[0] + DIRS[k][0], c[1] + DIRS[k][1]];
+      const key = n[0] * 100 + n[1];
+      if (prev.has(key)) continue;
+      const goal = same(n, b);
+      if (!goal && !guardWalk(cellAt(n))) continue;
+      prev.set(key, c);
+      if (goal) {
+        let s = n, p = c;
+        while (!same(p, a)) { s = p; p = prev.get(p[0] * 100 + p[1]); }
+        return guardWalk(cellAt(s)) ? s : null; // 철창·다리 칸 안으로는 안 들어가요
+      }
+      q.push(n);
+    }
+  }
+  return null;
+}
 
 export function fireTrap(game, now, world) {
   if (!game || game.won || game.trapMax <= 0) return;
@@ -71,7 +282,7 @@ export function fireTrap(game, now, world) {
   }
   let best = null;
   game.guards.forEach((g) => {
-    const c = g.path[g.i], d = Math.abs(c[0] - game.pos[0]) + Math.abs(c[1] - game.pos[1]);
+    const c = g.cell, d = Math.abs(c[0] - game.pos[0]) + Math.abs(c[1] - game.pos[1]);
     if (d <= TRAP_RANGE && now >= g.frozenUntil && (!best || d < best.d)) {
       best = { g, d };
     }
@@ -129,6 +340,11 @@ export function tryMove(game, d, now, fresh, world, onStageClear) {
     return;
   }
 
+  if (isRpsCh(game, ch) && !rpsOpen(game, ch)) {
+    if (!game.rps) startRps(game, ch, now);
+    return;
+  }
+
   if (isDoorCh(game, ch) && !doorIsOpen(game, ch)) {
     if (fresh) {
       SFX.bump();
@@ -142,17 +358,8 @@ export function tryMove(game, d, now, fresh, world, onStageClear) {
     return;
   }
 
-  if (isBridge(game, ch) && !bridgeUp(game, ch)) {
-    if (fresh) {
-      SFX.bump();
-      say(
-        p2Count() > 2
-          ? "P2가 손가락을 3개 이상 구부려서 다리가 가라앉았어요."
-          : `다리가 가라앉아 있어요. P2가 ${fingerNames(bridgeNeeds(game, ch))}를 구부려야 떠올라요.`
-      );
-    }
-    return;
-  }
+  // 다리가 없는 칸으로도 들어갈 수 있어요(들어가면 빠짐). 다리 위에 올라서면 그 칸은 다시 3초.
+  if (isBridge(game, ch) && bridgeUp(game, ch, now)) bridgeT(game)[ch] = now;
 
   game.prev = [...game.pos];
   game.from = [...game.pos];
@@ -180,7 +387,11 @@ export function tryMove(game, d, now, fresh, world, onStageClear) {
 }
 
 export function updateGame(game, now, screen, world, flashEl, onStageClear) {
-  if (screen !== "play" || !game || game.won) return;
+  if (screen !== "play" || !game || game.won) {
+    keyTapP1.fill(0);
+    keyTapP2.fill(0); // 메뉴·인트로에서 누른 방향키가 시작하자마자 반영되지 않게
+    return;
+  }
 
   const hiding = on(1, 0);
   if (hiding !== game.wasHiding) {
@@ -197,10 +408,13 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
     game.doorOpen[ch] = o;
   }
 
+  updateBridges(game, now);
+  keyTapP2.fill(0);
+
   // 다리 부상/침강 효과음
   if (game.s.bridges) {
     for (const ch of Object.keys(game.s.bridges)) {
-      const u = bridgeUp(game, ch);
+      const u = bridgeUp(game, ch, now);
       if (game.bridgeState[ch] !== undefined && game.bridgeState[ch] !== u) {
         (u ? SFX.rise : SFX.sink)();
       }
@@ -210,7 +424,7 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
 
   // 다리 침몰 판정
   const here = cellAt(game.pos);
-  if (isBridge(game, here) && !bridgeUp(game, here) && now - game.fellAt > 400) {
+  if (isBridge(game, here) && !bridgeUp(game, here, now) && now - game.fellAt > 400) {
     game.fall++;
     game.fellAt = now;
     if (world) {
@@ -228,10 +442,8 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
     shake(380, 0.35);
     SFX.splash(game.s.liquid === "lava");
     say(
-      game.s.liquid === "lava"
-        ? "용암에 빠졌어요! 다리 앞으로 돌아가요."
-        : "물에 빠졌어요! 다리 앞으로 돌아가요.",
-      3000
+      `${game.s.liquid === "lava" ? "용암" : "물"}에 빠졌어요! 다리 앞으로 돌아가요. P2가 손가락을 접어 다리를 만들고, P1은 3초 안에 건너요.`,
+      3400
     );
   }
 
@@ -251,7 +463,9 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
   }
 
   // P1 이동 판정
-  let dirs = [1, 2, 3, 4].filter((i) => on(1, i));
+  let dirs = allOn(1) ? [] : [1, 2, 3, 4].filter((i) => on(1, i)); // 주먹(소나 핑 자세)은 이동 아님
+  const tapDir = [1, 2, 3, 4].find((i) => keyTapP1[i] > 0);
+  if (!dirs.length && tapDir) dirs = [tapDir]; // 프레임 사이에 눌렀다 뗀 방향키
   let hint = "";
   if (dirs.length > 1) {
     const sorted = dirs.map((i) => [i, amtOf(1, i)]).sort((a, b) => b[1] - a[1]);
@@ -263,19 +477,29 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
     game.lastDir = -1;
     hint = "랜턴을 끈 동안에는 움직일 수 없어요";
   } else if (dirs.length === 1) {
+    // 한 칸씩 딱딱: 손가락을 한 번 접을 때마다 딱 한 칸만 움직여요.
+    // 계속 접고 있어도 더 가지 않고, 손가락을 폈다가 다시 접어야 다음 칸으로 가요.
+    // 인식이 잠깐 튀어서 '폈다 접은 것'처럼 보이는 경우(80ms 미만)는 무시해요.
     const d = dirs[0], fresh = d !== game.lastDir;
-    if (fresh || now - game.lastMove >= MOVE_MS) {
+    if ((fresh && (game.lastDir !== -1 || now - (game.relT ?? -1e9) >= 80)) || keyTapP1[d] > 0) {
       tryMove(game, d, now, fresh, world, onStageClear);
     }
     game.lastDir = d;
   } else {
+    if (game.lastDir !== -1) game.relT = now;
     game.lastDir = -1;
   }
+  keyTapP1.fill(0);
+  updateRps(game, now, world);
 
   // P2 힌트 안내
   if (!hint) {
     for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const ch = cellAt([game.pos[0] + dr, game.pos[1] + dc]);
+      if (isRpsCh(game, ch) && !rpsOpen(game, ch) && !game.rps) {
+        hint = "금색 철창: P1이 철창 쪽으로 가면 가위바위보 시작";
+        break;
+      }
       if (!isDoorCh(game, ch)) continue;
       const n = doorNeeds(game, ch), st = strayFingers(n);
       if (n.every((f) => on(2, f)) && st.length) {
@@ -284,29 +508,29 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
       }
     }
   }
+  if (game.pings > 0 && allOn(1) !== allOn(2)) hint = `${allOn(1) ? "P2" : "P1"}도 주먹을 쥐면 소나 핑`;
   setHint(hint);
 
-  // P2 제스처 감지 (소나 핑 / 덫)
-  const t2 = trk[2];
-  if (now - t2.seen < 300) {
-    const b = t2.bent;
-    if (b.every((x) => !x)) {
-      game.p2armed = true;
-    } else if (game.p2armed && b.every((x) => x)) {
-      game.p2armed = false;
-      firePing(game, now, world, document.getElementById("sonarBox"));
-    }
-    const shaka = !b[0] && b[1] && b[2] && b[3] && !b[4];
-    if (!shaka) {
-      game.trapArmed = true;
-    } else if (game.trapArmed) {
-      game.trapArmed = false;
-      fireTrap(game, now, world);
+  // 소나 핑: P1·P2 두 사람이 동시에 주먹을 쥐면 발사 (0.2초 유지).
+  // 스테이지 시작 때 쥐고 있던 주먹(다음 스테이지로 넘어온 주먹)은 한 번 펴야 인정돼요.
+  if (game.rps) {
+    game.fistArmed = false; // 가위바위보 중 바위를 내도 소나 핑이 나가지 않게
+  } else if (allOn(1) && allOn(2)) {
+    game.fistOff = 0;
+    if (game.fistArmed) {
+      game.fistSince ||= now;
+      if (now - game.fistSince >= 200) {
+        game.fistArmed = false;
+        firePing(game, now, world, document.getElementById("sonarBox"));
+      }
     }
   } else {
-    game.p2armed = false;
-    game.trapArmed = false;
+    // 0.25초 이상 확실히 폈을 때만 다시 쏠 준비 (화면이 잠깐 멈춰 손 인식이 끊긴 걸 '폈다'로 오해하지 않게)
+    game.fistOff ||= now;
+    if (now - game.fistOff >= 250) game.fistArmed = true;
+    game.fistSince = 0;
   }
+  // 덫은 꺼 둠 (stages.js traps: 0). 키보드 T도 traps가 0이라 동작하지 않아요.
 
   // 출구 거리 비프음
   const pg = game.ping;
@@ -352,25 +576,85 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
     }
   }
 
-  // 괴물 순찰 및 피격
-  for (const g of game.guards) {
+  // 괴물 순찰 · 감지 · 추격
+  // 랜턴을 켠 P1이 감지 범위(스테이지의 sense 칸, 벽을 돌아가는 걸음 수 기준) 안에 들어오면 쫓아와요.
+  // 엄지를 접어 랜턴을 끄면 놓치고, 마지막으로 본 자리에서 잠깐 두리번거리다 순찰로 돌아가요.
+  let chased = false;
+  for (const [gk, g] of game.guards.entries()) {
+    const sense = guardSense(game, gk);
     if (now < g.frozenUntil) {
       g.last = now;
       continue;
     }
-    if (now - g.last < GUARD_MS) continue;
+    const dazed = g.mode !== "chase" && now < (g.dazeUntil || 0);
+    const seen = sense > 0 && !hiding && !game.won && !dazed && guardDist(game, g.cell, game.pos, sense) <= sense;
+    if (seen) {
+      if (g.mode !== "chase") {
+        g.mode = "chase";
+        g.alertT = now;
+        SFX.growl();
+        say("괴물에게 들켰어요! 도망치거나 엄지를 접어 랜턴을 끄고 숨어요.", 2200);
+      }
+      g.lastSeen = [...game.pos];
+      g.seenT = now;
+    }
+    if (g.mode === "chase") chased = true;
+    const interval = g.mode === "chase" ? CHASE_MS : GUARD_MS;
+    if (now - g.last < interval) continue;
+    if (g.mode === "chase" && now - g.alertT < ALERT_MS) continue; // 발견하고 멈칫
+    if (g.mode === "search" && now < g.searchUntil) continue; // 두리번
     g.last = now;
-    g.from = g.path[g.i];
-    g.moveT = now;
-    if (g.i + g.d < 0 || g.i + g.d >= g.path.length) g.d *= -1;
-    g.i += g.d;
+    let to = null;
+    const home = g.path[g.i];
+    if (g.mode === "chase") {
+      if (guardDist(game, home, g.cell, LEASH + 1) > LEASH) {
+        g.mode = "return"; // 너무 멀리 왔으면 포기
+        g.dazeUntil = now + DAZE_MS;
+      }
+      else if (!seen && same(g.cell, g.lastSeen)) {
+        g.mode = "search";
+        g.searchUntil = now + SEARCH_MS;
+        g.dazeUntil = now + SEARCH_MS + DAZE_MS;
+        continue;
+      } else to = guardStep(game, g.cell, g.lastSeen);
+      if (!to && g.mode === "chase") g.mode = "return";
+    }
+    if (g.mode === "search") g.mode = "return";
+    if (g.mode === "return") {
+      if (same(g.cell, home)) g.mode = "patrol";
+      else {
+        to = guardStep(game, g.cell, home);
+        if (!to) {
+          g.mode = "patrol";
+          g.cell = [...home];
+        }
+      }
+    }
+    if (g.mode === "patrol" && !to) {
+      if (g.i + g.d < 0 || g.i + g.d >= g.path.length) g.d *= -1;
+      g.i += g.d;
+      to = g.path[g.i];
+    }
+    if (to) {
+      g.from = [...g.cell];
+      g.cell = [...to];
+      g.moveT = now;
+    }
   }
+  if (chased && !hiding && !game.won) setHint("괴물이 쫓아와요! 도망치거나 엄지를 접어 숨어요");
 
   if (
     !game.won &&
     !hiding &&
     now > game.inv &&
-    game.guards.some((g) => now >= g.frozenUntil && same(g.path[g.i], game.pos))
+    game.guards.some(
+      (g) =>
+        now >= g.frozenUntil &&
+        (same(g.cell, game.pos) ||
+          // 같은 순간에 서로 자리를 바꿔 지나가면(마주 보고 엇갈림) 잡힌 것으로 처리
+          (same(g.from, game.pos) && same(g.cell, game.from) &&
+            now - g.moveT < 300 && now - game.moveT < 300))
+    )
   ) {
     game.caught++;
     if (world) fx.burst(world.W(...game.pos), 60, [0xff3020, 0x7cc4ff, 0x2a0a18], 3);

@@ -45,7 +45,7 @@ let pipsKey = "";
 let trapKey = "";
 let needKey = "";
 let lostKey = "";
-let fistT = 0, fistArmed = false;
+let fistT = 0, fistArmed = false, fistSince = 0, fistOff = 0;
 
 const ARROW = { "-1,0": "↑", "1,0": "↓", "0,-1": "←", "0,1": "→" };
 
@@ -120,9 +120,9 @@ function sonarHud(now, game, hudElements) {
   else if (game.ping && now - game.ping.t0 < 7000) txt = game.ping.echoed ? "출구 신호를 잡았어요" : "탐지 중";
   else if (!camOn) txt = "P 키로 발사";
   else if (game.p2armed) {
-    txt = "준비됨 · 주먹을 쥐면 발사";
+    txt = "준비됨 · 둘 다 주먹을 쥐면 발사";
     ready = true;
-  } else txt = "손을 활짝 폈다가 주먹을 쥐면 발사";
+  } else txt = "P1·P2 둘 다 주먹을 쥐면 발사";
 
   if (sonarTxt.textContent !== txt) sonarTxt.textContent = txt;
   sonarTxt.classList.toggle("ready", ready);
@@ -160,7 +160,7 @@ function needHud(game, screen, hudElements, rowsP2) {
     if (isBridge(game, here)) {
       const n = bridgeNeeds(game, here);
       n.forEach((f) => want.add(f));
-      items.push({ arrow: "지금", n, kind: "다리 유지", hold: true });
+      items.push({ arrow: "지금", n, kind: "다리 3초 안에 건너기", hold: true });
     }
     for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
       const ch = cellAt([game.pos[0] + dr, game.pos[1] + dc]);
@@ -177,7 +177,7 @@ function needHud(game, screen, hudElements, rowsP2) {
       }
     }
     if (p2Count() > 2 && items.some((x) => x.kind !== "철창")) {
-      warn = "손가락 3개 이상 → 다리 가라앉음";
+      warn = "손가락 3개 이상 → 다리 안 생김";
     }
   }
 
@@ -231,13 +231,19 @@ function lostCheck(now, screen, hudElements) {
 function fistCheck(now, dt, screen, primaryActionFn) {
   if ((screen === "intro" || screen === "clear") && camOn) {
     const both = allOn(1) && allOn(2);
-    if (!both) fistArmed = true;
-    fistT = both && fistArmed ? fistT + dt : 0;
+    if (!both) {
+      fistOff ||= now;
+      if (now - fistOff >= 250) fistArmed = true; // 0.25초 이상 확실히 폈을 때만 다시 준비
+    } else fistOff = 0;
+    // 실제 흐른 시간으로 재요 (화면이 느린 노트북에서도 1초면 넘어가게)
+    if (both && fistArmed) { fistSince ||= now; fistT = now - fistSince; }
+    else { fistSince = 0; fistT = 0; }
     const bar = document.querySelector("#fistBar");
     const wv = `${Math.round(Math.min(100, (fistT / FIST_MS) * 100))}%`;
     if (bar && bar.style.width !== wv) bar.style.width = wv;
     if (fistT >= FIST_MS) {
       fistT = 0;
+      fistSince = 0;
       fistArmed = false;
       if (primaryActionFn) primaryActionFn();
     }

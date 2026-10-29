@@ -56,6 +56,8 @@ export function initScreensDOM(elements) {
     } else if (act === "calcancel" || act === "calok") {
       const r = cal?.returnTo;
       if (r === "play" && game && !game.won) {
+        // 손 맞추기 하는 동안 흐른 시간은 기록에 넣지 않아요
+        if (game.startT !== null && cal?.startedAt) game.startT += performance.now() - cal.startedAt;
         setScreen("play");
         hideOverlay();
       } else {
@@ -88,7 +90,7 @@ export function toggleSettings(v = settingsEl ? settingsEl.hidden : false) {
 
 const fistHint = () =>
   `<div class="fist"><span>${
-    camOn ? "Enter 또는 두 사람 모두 주먹을 1초 쥐기" : "Enter"
+    camOn ? "두 사람 모두 주먹을 1초 쥐면 다음으로 (또는 Enter)" : "Enter"
   }</span>${camOn ? '<div class="track"><div id="fistBar"></div></div>' : ""}</div>`;
 
 const escapeHtml = (t) =>
@@ -147,7 +149,7 @@ export function showIntro(i) {
       <h2>${s.name}</h2>
       <p class="lead">${s.desc}</p>
       <p>${s.tip}</p>
-      <p class="lead" style="color:var(--sonar)">소나 핑 ${s.pings}번 · P2가 손을 활짝 폈다가 주먹을 쥐면 출구 쪽에서 신호가 돌아와요.</p>
+      <p class="lead" style="color:var(--sonar)">소나 핑 ${s.pings}번 · P1·P2가 동시에 주먹을 쥐면 출구 쪽에서 신호가 돌아와요.</p>
       <div class="btns"><button class="btn primary big" data-act="go">시작</button></div>
       ${fistHint()}
     </div>`
@@ -301,7 +303,8 @@ export function showFinal() {
 }
 
 export async function saveRace() {
-  if (!run.race || run.saved) return;
+  if (!run.race || run.saved || run.saving) return;
+  run.saving = true; // 저장 중에 Enter를 또 누르면 메뉴로 튕기거나 두 번 저장되던 문제 방지
   const input = document.getElementById("raceName");
   const name = (input?.value || "").trim().slice(0, 12) || "이름 없는 팀";
   store.set(LAST_NAME_KEY, name);
@@ -325,6 +328,7 @@ export async function saveRace() {
 
   const res = await submitScore(entry);
   run.saved = true;
+  run.saving = false;
   SFX.clear();
   showBoard(res.id);
 }
@@ -405,6 +409,7 @@ export function primaryAction() {
   } else if (screen === "clear") {
     nextStage();
   } else if (screen === "final") {
+    if (run.saving) return;
     if (run.race && !run.saved && document.getElementById("raceName")) {
       saveRace();
     } else {

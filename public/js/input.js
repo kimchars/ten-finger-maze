@@ -3,6 +3,9 @@ import { trk } from "./hand/tracker.js";
 
 export const keyP1 = [false, false, false, false, false];
 export const keyP2 = [false, false, false, false, false];
+// 방향키를 '눌렀다'는 사실을 따로 기억해요. 화면이 느려서 누르고 떼는 사이에 프레임이 지나가 버려도 한 칸은 꼭 움직이게요.
+export const keyTapP1 = [0, 0, 0, 0, 0];
+export const keyTapP2 = [0, 0, 0, 0, 0]; // 숫자키를 짧게 눌러도 다리가 생기게
 
 export const KEYMAP = {
   Space: [1, 0],
@@ -46,6 +49,7 @@ export function initKeyboardListeners() {
     if (m) {
       e.preventDefault();
       (m[0] === 1 ? keyP1 : keyP2)[m[1]] = isDown;
+      if (isDown && !e.repeat) (m[0] === 1 ? keyTapP1 : keyTapP2)[m[1]]++;
       return;
     }
 

@@ -83,6 +83,10 @@ export const trk = {
 export function feed(p, lm, now) {
   const t = trk[p], m = metrics(lm), c = calOf(p);
   const hi = sens(), lo = Math.max(0.15, hi - 0.18);
+  // 손 인식 간격이 45ms보다 길면(1초에 22번 미만, 저사양 노트북) 한 번만 보고 바로 인정해요.
+  // 빠른 컴퓨터는 지금처럼 2번 연속으로 확인해서 흔들림을 걸러요. (손이 막 다시 보인 경우는 제외)
+  const gapMs = now - t.seen;
+  const need = gapMs > 45 && gapMs < 300 ? 1 : 2;
   t.metric = m;
 
   for (let i = 0; i < 5; i++) {
@@ -93,7 +97,7 @@ export function feed(p, lm, now) {
     t.raw[i] = want;
     if (want !== t.bent[i]) {
       const strong = want ? n > hi + 0.15 : n < lo - 0.12;
-      if (strong || ++t.cnt[i] >= 2) {
+      if (strong || ++t.cnt[i] >= need) {
         t.bent[i] = want;
         t.cnt[i] = 0;
       }
