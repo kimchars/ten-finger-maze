@@ -251,3 +251,20 @@ kbd { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line); 
 .boot { position: absolute; inset: 0; z-index: 20; display: grid; place-content: center; gap: 10px; text-align: center; background: var(--bg); color: var(--muted); padding: 24px; }
 .boot b { font-family: var(--title); font-weight: 400; font-size: 34px; color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ── 체험 기록 캡처 · 순위표 탭 ── */
+.shotask { display: flex; align-items: center; gap: 12px; width: min(420px, 100%); text-align: left; font-size: 13px; color: var(--muted); }
+.shotask img { width: 132px; height: auto; border-radius: 8px; border: 1px solid var(--edge); }
+.tabs { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.tabs .tab { opacity: 0.6; }
+.tabs .tab.on { opacity: 1; border-color: var(--ember); color: var(--ember); }
+.tbl.board td.shotcell { padding: 2px 6px; }
+.shotbtn { background: none; border: 0; padding: 0; cursor: zoom-in; }
+.shotbtn img { width: 64px; height: auto; display: block; border-radius: 6px; border: 1px solid var(--edge); }
+.shotbig { width: min(640px, 100%); height: auto; border-radius: 10px; border: 1px solid var(--edge); }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.photobox { position: relative; width: min(520px, 100%); border-radius: 12px; overflow: hidden; border: 2px solid var(--ember); background: #000; }
+.photobox canvas { display: block; width: 100%; height: auto; }
+.photocount { position: absolute; inset: 0; display: grid; place-items: center; font-size: clamp(56px, 12vw, 110px); font-weight: 900; color: #fff; text-shadow: 0 4px 24px rgba(0,0,0,0.8); }
+.photobox.flash::after { content: ""; position: absolute; inset: 0; background: #fff; animation: photoflash 0.45s ease-out forwards; }
+@keyframes photoflash { from { opacity: 0.9; } to { opacity: 0; } }

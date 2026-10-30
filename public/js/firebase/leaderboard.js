@@ -1,15 +1,17 @@
 // 온라인(Firestore) 및 오프라인(localStorage) 하이브리드 순위표
 import { getFirebaseInstances } from "./init.js";
 import { ensureAnonymousAuth, getCurrentUser } from "./auth.js";
-import { store, LOCAL_BOARD_KEY } from "../store.js";
+import { store, LOCAL_BOARD_KEY, TRIAL_BOARD_KEY } from "../store.js";
 
-const COLLECTION_NAME = "leaderboard";
+// kind: "race" = 5단계 레이스, "trial" = 1~3단계 체험
+const COLLECTION = { race: "leaderboard", trial: "trialboard" };
+const LOCAL_KEY = { race: LOCAL_BOARD_KEY, trial: TRIAL_BOARD_KEY };
 
 function sortBoard(b) {
   return b.sort((x, y) => x.time - y.time || x.deaths - y.deaths || x.at - y.at);
 }
 
-export async function fetchLeaderboard() {
+export async function fetchLeaderboard(kind = "race") {
   const { db, isReady } = getFirebaseInstances();
 
   if (isReady && db) {
@@ -17,7 +19,7 @@ export async function fetchLeaderboard() {
       const { collection, getDocs, query, orderBy, limit } = await import(
         "https://www.gstatic.com/firebasejs/11.7.1/firebase-firestore.js"
       );
-      const q = query(collection(db, COLLECTION_NAME), orderBy("time", "asc"), limit(50));
+      const q = query(collection(db, COLLECTION[kind]), orderBy("time", "asc"), limit(50));
       const snap = await getDocs(q);
       const results = [];
       snap.forEach((doc) => {
@@ -30,15 +32,15 @@ export async function fetchLeaderboard() {
   }
 
   // 로컬 fallback
-  const local = store.get(LOCAL_BOARD_KEY, []);
+  const local = store.get(LOCAL_KEY[kind], []);
   return { board: sortBoard(Array.isArray(local) ? local : []), isCloud: false };
 }
 
-export async function submitScore(entry) {
+export async function submitScore(entry, kind = "race") {
   // 1. 항상 로컬 스토리지에 백업 저장
-  const local = store.get(LOCAL_BOARD_KEY, []);
+  const local = store.get(LOCAL_KEY[kind], []);
   const updatedLocal = sortBoard([...(Array.isArray(local) ? local : []), entry]).slice(0, 50);
-  store.set(LOCAL_BOARD_KEY, updatedLocal);
+  store.set(LOCAL_KEY[kind], updatedLocal);
 
   const { db, isReady } = getFirebaseInstances();
   if (isReady && db) {
@@ -48,7 +50,7 @@ export async function submitScore(entry) {
       const { collection, addDoc } = await import(
         "https://www.gstatic.com/firebasejs/11.7.1/firebase-firestore.js"
       );
-      const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+      const docRef = await addDoc(collection(db, COLLECTION[kind]), {
         name: entry.name,
         time: entry.time,
         deaths: entry.deaths,
@@ -64,6 +66,6 @@ export async function submitScore(entry) {
   return { id: entry.id, isCloud: false };
 }
 
-export async function clearLocalLeaderboard() {
-  store.set(LOCAL_BOARD_KEY, []);
+export async function clearLocalLeaderboard(kind = "race") {
+  store.set(LOCAL_KEY[kind], []);
 }

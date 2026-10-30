@@ -57,6 +57,9 @@
     <label for="sensSlider">인식 기준 (낮을수록 조금만 구부려도 인식)<output id="sensOut">60%</output>
       <input type="range" id="sensSlider" min="35" max="85" step="1" value="60">
     </label>
+    <label for="bridgeSlider">다리 유지 시간 (짧을수록 어려움)<output id="bridgeOut">2초</output>
+      <input type="range" id="bridgeSlider" min="1.5" max="4" step="0.5" value="2">
+    </label>
     <div class="line"><span>그래픽 품질</span><span class="seg"><button type="button" id="qHigh">높음</button><button type="button" id="qLow">낮음</button></span></div>
     <div class="line"><span>소리</span><button class="btn" id="muteBtn" type="button" aria-pressed="false">켜짐 (M)</button></div>
     <div class="line"><span>성능 표시 (화면·손 인식 속도)</span><button class="btn" id="perfBtn" type="button" aria-pressed="false">꺼짐 (F)</button></div>

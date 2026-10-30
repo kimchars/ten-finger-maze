@@ -26,6 +26,8 @@ import { fx } from "../3d/particles.js";
 import { isDoorCh, isBridge, isRpsCh, doorNeeds, bridgeNeeds } from "../3d/world.js";
 import { isBlock, cellAt, same, exitCell } from "./state.js";
 import { say, setHint, clearHint } from "../ui/toast.js";
+import { store, BRIDGE_KEY } from "../store.js";
+import { isBrick } from "../3d/world.js";
 
 export const strayLimit = () => Math.max(sens() + 0.12, 0.72);
 
@@ -63,18 +65,25 @@ export const p2Count = () => {
 };
 
 // 다리(울타리) 리듬 규칙
-// - P2가 다리 칸의 손가락을 '접는 순간' 그 칸에 다리가 한 칸 생기고, 3초 뒤 사라져요.
-// - P1이 그 다리에 올라서면 그때부터 다시 3초. 3초 안에 다음 칸으로 가지 않으면 다리가 사라지며 빠져요.
+// - P2가 다리 칸의 손가락을 '접는 순간' 그 칸에 다리가 한 칸 생기고, 설정한 시간(기본 2초) 뒤 사라져요.
+// - P1이 그 다리에 올라서면 그때부터 다시 그 시간. 그 안에 다음 칸으로 가지 않으면 다리가 사라지며 빠져요.
 // - 다시 만들려면 손가락을 폈다가 다시 접어야 해요. (손가락 3개 이상 접으면 만들어지지 않아요)
 // - 다리가 없는 물(용암) 칸으로 걸어 들어가면 빠지고, 다리 앞으로 돌아가요.
-export const BRIDGE_MS = 3000;
+// 다리 유지 시간: 설정에서 1.5~4초로 바꿀 수 있어요 (기본 2초)
+let bridgeSec = Number(store.get(BRIDGE_KEY, 2)) || 2;
+export const bridgeMs = () => bridgeSec * 1000;
+export const getBridgeSec = () => bridgeSec;
+export function setBridgeSec(v) {
+  bridgeSec = Math.max(1, Math.min(6, Number(v) || 2));
+  store.set(BRIDGE_KEY, bridgeSec);
+}
 const bridgeCond = (game, ch) => p2Count() <= 2 && bridgeNeeds(game, ch).every((f) => on(2, f));
 const bridgeT = (game) => (game.bridgeT ||= {});
 const bridgeArm = (game) => (game.bridgeArm ||= {});
 export const bridgeLife = (game, ch, now = performance.now()) => {
   const t = bridgeT(game)[ch];
   if (t === undefined) return 0;
-  const left = 1 - (now - t) / BRIDGE_MS;
+  const left = 1 - (now - t) / bridgeMs();
   return left > 0 ? left : 0;
 };
 export const bridgeUp = (game, ch, now) => bridgeLife(game, ch, now) > 0;
@@ -150,7 +159,7 @@ function updateRps(game, now, world) {
     const beat = t < 0 ? -1 : Math.min(2, Math.floor(t / RPS_CALL));
     if (beat > r.beat) {
       r.beat = beat;
-      beat < 2 ? SFX.tick() : SFX.bump();
+      SFX.rpsBeat(beat);
     }
     const sh = p2Shape();
     if (sh !== r.shape) {
@@ -191,7 +200,7 @@ function updateRps(game, now, world) {
       game.rpsLoseAt[r.ch] = lost + 1;
       const back = game.trail[game.trail.length - 1];
       const bch = back && cellAt(back);
-      if (back && !same(back, game.pos) && !isDoorCh(game, bch) && !isBridge(game, bch) && !isRpsCh(game, bch)) {
+      if (back && !same(back, game.pos) && !isDoorCh(game, bch) && !isBridge(game, bch) && !isRpsCh(game, bch) && !isBrick(game, bch)) {
         game.from = [...game.pos];
         game.moveT = now;
         game.pos = [...back];
@@ -214,6 +223,49 @@ function updateRps(game, now, world) {
     return;
   }
   game.rps = { ...r, t0: now + 250, beat: -1, phase: "count", shape: null, since: now, pick: null, result: null };
+}
+
+// ── 벽돌 벽 ──
+// P1이 벽돌 바로 앞에 있을 때, P2가 정해진 손가락을 접었다 펼 때마다 벽돌이 한 층씩 깨져요.
+// 정해진 횟수를 다 채우면 완전히 뚫려서 지나갈 수 있어요. (멀리서 접으면 안 깨져요)
+const brickCfg = (game, ch) => game.s.bricks[ch];
+export const brickLeft = (game, ch) => {
+  const c = brickCfg(game, ch);
+  return c ? Math.max(0, c.hits - ((game.brickHits || {})[ch] || 0)) : 0;
+};
+export const brickBroken = (game, ch) => brickLeft(game, ch) <= 0;
+function nextToBrick(game, ch) {
+  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dr, dc]) => cellAt([game.pos[0] + dr, game.pos[1] + dc]) === ch);
+}
+function updateBricks(game, now, world) {
+  if (!game.s.bricks) return;
+  const H = (game.brickHits ||= {}), A = (game.brickArm ||= {}), T = (game.brickT ||= {});
+  for (const ch of Object.keys(game.s.bricks)) {
+    if (brickBroken(game, ch)) continue;
+    const f = brickCfg(game, ch).finger;
+    const held = on(2, f), tapped = keyTapP2[f] > 0;
+    if (!held && !tapped) {
+      A[ch] = true;
+      continue;
+    }
+    // 새로 접은 순간만 한 번 (접은 채로 있으면 더 안 깨져요). 키보드는 누를 때마다 한 번.
+    const fresh = tapped || A[ch] !== false;
+    A[ch] = !held;
+    if (!fresh || !nextToBrick(game, ch) || now - (T[ch] || 0) < 120) continue;
+    T[ch] = now;
+    H[ch] = (H[ch] || 0) + (tapped ? keyTapP2[f] : 1); // 한 프레임 사이에 여러 번 누른 키도 모두 세요
+    game.brickTotal = (game.brickTotal || 0) + 1;
+    const left = brickLeft(game, ch);
+    shake(left ? 140 : 380, left ? 0.12 : 0.3);
+    if (left) {
+      SFX.bump();
+      SFX.push();
+      setHint(`벽돌 ${left}번 남았어요!`);
+    } else {
+      SFX.open();
+      say("벽돌을 완전히 부쉈어요! 지나갈 수 있어요.", 2200);
+    }
+  }
 }
 
 export const fingerNames = (list) => list.map((f) => FINGER[f]).join("+");
@@ -345,6 +397,15 @@ export function tryMove(game, d, now, fresh, world, onStageClear) {
     return;
   }
 
+  if (isBrick(game, ch) && !brickBroken(game, ch)) {
+    if (fresh) {
+      SFX.bump();
+      const c = brickCfg(game, ch);
+      say(`벽돌 벽이에요. P2가 ${FINGER[c.finger]}를 ${brickLeft(game, ch)}번 더 접었다 펴면 부서져요.`, 2600);
+    }
+    return;
+  }
+
   if (isDoorCh(game, ch) && !doorIsOpen(game, ch)) {
     if (fresh) {
       SFX.bump();
@@ -358,7 +419,7 @@ export function tryMove(game, d, now, fresh, world, onStageClear) {
     return;
   }
 
-  // 다리가 없는 칸으로도 들어갈 수 있어요(들어가면 빠짐). 다리 위에 올라서면 그 칸은 다시 3초.
+  // 다리가 없는 칸으로도 들어갈 수 있어요(들어가면 빠짐). 다리 위에 올라서면 그 칸은 시간이 다시 시작돼요.
   if (isBridge(game, ch) && bridgeUp(game, ch, now)) bridgeT(game)[ch] = now;
 
   game.prev = [...game.pos];
@@ -409,6 +470,7 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
   }
 
   updateBridges(game, now);
+  updateBricks(game, now, world);
   keyTapP2.fill(0);
 
   // 다리 부상/침강 효과음
@@ -442,7 +504,7 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
     shake(380, 0.35);
     SFX.splash(game.s.liquid === "lava");
     say(
-      `${game.s.liquid === "lava" ? "용암" : "물"}에 빠졌어요! 다리 앞으로 돌아가요. P2가 손가락을 접어 다리를 만들고, P1은 3초 안에 건너요.`,
+      `${game.s.liquid === "lava" ? "용암" : "물"}에 빠졌어요! 다리 앞으로 돌아가요. P2가 손가락을 접어 다리를 만들고, P1은 ${bridgeSec}초 안에 건너요.`,
       3400
     );
   }
@@ -496,6 +558,10 @@ export function updateGame(game, now, screen, world, flashEl, onStageClear) {
   if (!hint) {
     for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const ch = cellAt([game.pos[0] + dr, game.pos[1] + dc]);
+      if (isBrick(game, ch) && !brickBroken(game, ch)) {
+        hint = `P2: ${FINGER[brickCfg(game, ch).finger]}를 접었다 폈다! 벽돌 ${brickLeft(game, ch)}번 남음`;
+        break;
+      }
       if (isRpsCh(game, ch) && !rpsOpen(game, ch) && !game.rps) {
         hint = "금색 철창: P1이 철창 쪽으로 가면 가위바위보 시작";
         break;

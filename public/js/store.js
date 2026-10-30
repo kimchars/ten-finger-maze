@@ -25,3 +25,6 @@ export const CAM_MINI_KEY = "tfm3-cammini";
 export const PERF_KEY = "tfm3-perf";
 export const LAST_NAME_KEY = "tfm4-lastname";
 export const LOCAL_BOARD_KEY = "tfm4-board";
+export const TRIAL_BOARD_KEY = "tfm5-trialboard"; // 체험(1~3단계) 순위표 로컬 백업
+export const SHOTS_KEY = "tfm5-shots"; // 기록 옆에 보여줄 캡처 사진 (이 브라우저에만)
+export const BRIDGE_KEY = "tfm5-bridge"; // 다리 유지 시간(초)

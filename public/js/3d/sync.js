@@ -5,6 +5,8 @@ import { on } from "../input.js";
 import { SFX } from "../audio.js";
 import { fx } from "./particles.js";
 import { updateCamera } from "./camera.js";
+import { label } from "./entities.js";
+import { bridgeMs, brickLeft } from "../game/logic.js";
 
 const ease = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 const lerpAngle = (a, b, t) => {
@@ -121,9 +123,42 @@ export function sync3D(now, dt, world, game, screen, glCanvas, dangerEl, doorIsO
     const up = life > 0 ? 1 : 0;
     b2.o += (up - b2.o) * Math.min(1, dt / 110);
     b2.g.position.y = -0.32 * (1 - b2.o);
-    const blink = life > 0 && life < 0.34 ? (Math.sin(now / 60) > 0 ? 1 : 0.2) : 1; // 사라지기 1초 전 깜빡임
+    const blink = life > 0 && life * bridgeMs() < 800 ? (Math.sin(now / 60) > 0 ? 1 : 0.2) : 1; // 사라지기 0.8초 전 깜빡임
     b2.em.emissiveIntensity = (0.5 + b2.o * 1.6 + Math.sin(now / 280) * 0.15) * blink;
     b2.lb.material.opacity = 0.85 + b2.o * 0.15;
+  }
+
+  // 5-1. 벽돌 벽: 남은 횟수만큼 층이 남아 있어요. 깨질 때마다 위층이 날아가요.
+  for (const bk of world.bricks || []) {
+    const left = brickLeft(game, bk.ch);
+    if (left !== bk.shown) {
+      for (let i = left; i < bk.shown; i++) {
+        const lay = bk.layers[i];
+        if (!lay) continue;
+        lay.visible = false;
+        const p = bk.pos;
+        fx.burst(new THREE.Vector3(p.x, 0.15 + i * (1 / bk.layers.length), p.z), left ? 22 : 60, [0x9c5a3c, 0xc98a5c, 0x3a2a22], left ? 1.6 : 2.6);
+      }
+      bk.shown = left;
+      bk.flashT = now;
+      bk.root ??= bk.lb.parent;
+      if (bk.root) {
+        bk.root.remove(bk.lb);
+        bk.lb.material.map?.dispose();
+        bk.lb.material.dispose();
+        const cfg = game.s.bricks[bk.ch];
+        bk.lb = label(
+          left ? [{ t: `${left}`, color: "#ffffff" }, { t: "번 남음", color: "#d9c79a" }] : [{ t: "뚫림!", color: "#9dff7a" }],
+          0.24
+        );
+        bk.lb.position.set(bk.pos.x, left ? 0.35 + left / cfg.hits : 0.9, bk.pos.z);
+        bk.root.add(bk.lb);
+      }
+    }
+    const fl = Math.max(0, 1 - (now - bk.flashT) / 260);
+    bk.g.position.x = bk.pos.x + (fl ? Math.sin(now / 18) * 0.05 * fl : 0);
+    bk.glowM.emissiveIntensity = left ? 1.2 + Math.sin(now / 260) * 0.4 + fl * 3 : 0.2;
+    if (!left && bk.lb.material.opacity > 0) bk.lb.material.opacity = Math.max(0, 1 - (now - bk.flashT) / 1500);
   }
 
   // 6. 물 / 용암 텍스처 스크롤
@@ -238,7 +273,7 @@ export function sync3D(now, dt, world, game, screen, glCanvas, dangerEl, doorIsO
 
   if (screen === "play" && near <= 2 && !hiding && now - lastGrowl > 1700) {
     lastGrowl = now;
-    SFX.growl();
+    SFX.growlNear();
   }
 
   const dOp = screen === "play" && !hiding && near <= 2 ? (near <= 1 ? "1" : "0.55") : "0";

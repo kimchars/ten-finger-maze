@@ -5,9 +5,9 @@ import { sens, trk } from "../hand/tracker.js";
 import { camOn, handStat } from "../hand/camera.js";
 import { store, PERF_KEY } from "../store.js";
 import { dyn, Q, setQuality, resize } from "../3d/engine.js";
-import { isDoorCh, isBridge, doorNeeds, bridgeNeeds } from "../3d/world.js";
+import { isDoorCh, isBridge, isBrick, doorNeeds, bridgeNeeds } from "../3d/world.js";
 import { cellAt, raceTotal } from "../game/state.js";
-import { doorIsOpen, strayFingers, fingerNames, p2Count, bridgeUp } from "../game/logic.js";
+import { doorIsOpen, strayFingers, fingerNames, p2Count, bridgeUp, getBridgeSec, brickLeft } from "../game/logic.js";
 import { say, clearHint } from "./toast.js";
 
 export const fmt = (ms) => {
@@ -160,7 +160,7 @@ function needHud(game, screen, hudElements, rowsP2) {
     if (isBridge(game, here)) {
       const n = bridgeNeeds(game, here);
       n.forEach((f) => want.add(f));
-      items.push({ arrow: "지금", n, kind: "다리 3초 안에 건너기", hold: true });
+      items.push({ arrow: "지금", n, kind: `다리 ${getBridgeSec()}초 안에 건너기`, hold: true });
     }
     for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
       const ch = cellAt([game.pos[0] + dr, game.pos[1] + dc]);
@@ -170,6 +170,10 @@ function needHud(game, screen, hudElements, rowsP2) {
         items.push({ arrow: ARROW[dr + "," + dc], n, kind: "철창" });
         const st = strayFingers(n);
         if (n.every((f) => on(2, f)) && st.length) warn = `${fingerNames(st)} 펴기`;
+      } else if (isBrick(game, ch) && brickLeft(game, ch) > 0) {
+        const f = game.s.bricks[ch].finger;
+        want.add(f);
+        items.push({ arrow: ARROW[dr + "," + dc], n: [f], kind: `벽돌 ${brickLeft(game, ch)}번 접기` });
       } else if (isBridge(game, ch)) {
         const n = bridgeNeeds(game, ch);
         n.forEach((f) => want.add(f));

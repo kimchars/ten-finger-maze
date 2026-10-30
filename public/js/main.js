@@ -5,7 +5,7 @@ import { world } from "./3d/world.js";
 import { camCtl, measureHud } from "./3d/camera.js";
 import { sync3D } from "./3d/sync.js";
 import { store, SENS_KEY, CAM_MINI_KEY } from "./store.js";
-import { audioUnlock, isMuted, toggleMute } from "./audio.js";
+import { audioUnlock, isMuted, toggleMute, setMonsterLevel } from "./audio.js";
 import { initKeyboardListeners, registerAction } from "./input.js";
 import { trk, sens, setSens, getSensPercent, calib, settle } from "./hand/tracker.js";
 import {
@@ -19,7 +19,7 @@ import {
 import { initOverlay, drawOverlay } from "./hand/overlay.js";
 import { registerCalibUI, calTick, startCalib } from "./hand/calibration.js";
 import { game, run, screen, stageIdx, exitCell, setScreen } from "./game/state.js";
-import { doorIsOpen, bridgeLife, updateGame, firePing, fireTrap } from "./game/logic.js";
+import { doorIsOpen, bridgeLife, updateGame, firePing, fireTrap, getBridgeSec, setBridgeSec } from "./game/logic.js";
 import { drawRps } from "./ui/rps.js";
 import { initRadarCanvas, drawRadar, radar } from "./ui/radar.js";
 import { initToastDOM, updateToast, say } from "./ui/toast.js";
@@ -141,6 +141,19 @@ function syncSens() {
   setSens(sensSlider.value);
 }
 sensSlider.addEventListener("input", syncSens);
+
+// 다리 유지 시간 설정
+const bridgeSlider = document.getElementById("bridgeSlider");
+const bridgeOut = document.getElementById("bridgeOut");
+if (bridgeSlider) {
+  bridgeSlider.value = getBridgeSec();
+  const syncBridge = () => {
+    setBridgeSec(bridgeSlider.value);
+    bridgeOut.textContent = `${getBridgeSec()}초`;
+  };
+  bridgeSlider.addEventListener("input", syncBridge);
+  bridgeOut.textContent = `${getBridgeSec()}초`;
+}
 syncSens();
 syncCalStat();
 
@@ -255,6 +268,19 @@ const hudElements = {
   sRaceEl,
 };
 
+// 괴물 접근음 크기: 가장 가까운 괴물이 6칸 밖이면 0, 바로 옆이면 1. 쫓아오는 중이면 최소 0.6.
+function monsterLevel(now) {
+  if (screen !== "play" || !game || game.won || !game.guards.length) return 0;
+  let lv = 0;
+  for (const g of game.guards) {
+    if (now < g.frozenUntil) continue;
+    const c = g.cell || g.path[g.i];
+    const d = Math.abs(c[0] - game.pos[0]) + Math.abs(c[1] - game.pos[1]);
+    lv = Math.max(lv, (6 - d) / 5, g.mode === "chase" ? 0.6 : 0);
+  }
+  return Math.min(1, lv);
+}
+
 function loop() {
   requestAnimationFrame(loop);
   const t = performance.now();
@@ -273,6 +299,7 @@ function loop() {
 
   calTick(now, screen);
   updateGame(game, now, screen, world, flashEl, showClear);
+  setMonsterLevel(monsterLevel(now));
 
   sync3D(
     now,

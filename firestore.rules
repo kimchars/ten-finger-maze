@@ -4,7 +4,7 @@ rules_version = '2';
  * 열 손가락 미로 (Ten-Finger Maze) - Cloud Firestore 보안 규칙
  * 
  * 데이터 모델:
- * - collection: leaderboard
+ * - collection: leaderboard (5단계 레이스), trialboard (1~3단계 체험) — 필드는 같아요
  *   - document fields:
  *     - name: string (1~12자 이내 팀명)
  *     - time: number (밀리초 탈출 시간, 1초 이상)
@@ -55,6 +55,14 @@ service cloud.firestore {
       allow update: if false;
 
       // 작성자 본인만 자신의 기록을 삭제할 수 있습니다.
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
+    // === 체험(1~3단계) 순위표: 레이스 순위표와 같은 규칙 ===
+    match /trialboard/{scoreId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidLeaderboardEntry();
+      allow update: if false;
       allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
     }
 

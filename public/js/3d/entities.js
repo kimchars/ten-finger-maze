@@ -359,6 +359,48 @@ export function makeDoor(needs, acrossX) {
   return { g, bars, mats, glow, o: 0 };
 }
 
+// 벽돌 벽: hits 층으로 쌓아요. 한 번 접을 때마다 맨 위층부터 하나씩 사라져요.
+export function makeBrick(hits, fingerColor) {
+  const g = new THREE.Group();
+  const H = 1.0, lh = H / hits;
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9c5a3c, roughness: 0.85, metalness: 0.05 });
+  const mortar = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1 });
+  const glowM = new THREE.MeshStandardMaterial({
+    color: fingerColor,
+    emissive: fingerColor,
+    emissiveIntensity: 1.6,
+    roughness: 0.4,
+  });
+  const layers = [];
+  for (let i = 0; i < hits; i++) {
+    const layer = new THREE.Group();
+    const y = lh * i + lh / 2;
+    // 벽돌을 엇갈려 쌓기: 짝수 층은 2장, 홀수 층은 반장-1장-반장
+    const parts = i % 2 ? [[-0.36, 0.22], [0, 0.46], [0.36, 0.22]] : [[-0.235, 0.45], [0.235, 0.45]];
+    const geos = parts.map(([x, w]) => new THREE.BoxGeometry(w, lh * 0.86, 0.9).translate(x, y, 0));
+    const m = new THREE.Mesh(mergeGeos(geos), mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    layer.add(m);
+    const mo = new THREE.Mesh(new THREE.BoxGeometry(0.92, lh * 0.95, 0.84).translate(0, y, 0), mortar);
+    layer.add(mo);
+    g.add(layer);
+    layers.push(layer);
+  }
+  // 바닥에 손가락 색 테두리
+  const ring = new THREE.Mesh(
+    mergeGeos([
+      new THREE.BoxGeometry(0.98, 0.04, 0.06).translate(0, 0.03, 0.47),
+      new THREE.BoxGeometry(0.98, 0.04, 0.06).translate(0, 0.03, -0.47),
+      new THREE.BoxGeometry(0.06, 0.04, 0.98).translate(0.47, 0.03, 0),
+      new THREE.BoxGeometry(0.06, 0.04, 0.98).translate(-0.47, 0.03, 0),
+    ]),
+    glowM
+  );
+  g.add(ring);
+  return { g, layers, glowM, mat };
+}
+
 export function makeExit() {
   const g = new THREE.Group();
   const ringM = new THREE.MeshStandardMaterial({

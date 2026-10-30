@@ -8,6 +8,7 @@ import {
   makeExit,
   makeTorch,
   makeBats,
+  makeBrick,
   label,
 } from "./entities.js";
 
@@ -20,6 +21,11 @@ export function isDoorCh(game, ch) {
 // 가위바위보 철창: P2가 수문장과 가위바위보를 해서 이겨야 열려요
 export function isRpsCh(game, ch) {
   return !!(game && game.s.rps && game.s.rps[ch]);
+}
+
+// 벽돌 벽: 정해진 손가락을 N번 접었다 펴면 부서져요
+export function isBrick(game, ch) {
+  return !!(game && game.s.bricks && game.s.bricks[ch]);
 }
 
 export function isBridge(game, ch) {
@@ -479,6 +485,22 @@ export function buildWorld(game, si) {
     liquid.userData.lava = lava;
   }
 
+  // 벽돌 벽
+  const bricks = [];
+  map.forEach((row, r) =>
+    [...row].forEach((ch, c) => {
+      if (!isBrick(game, ch)) return;
+      const cfg = game.s.bricks[ch], p = W(r, c);
+      const b = makeBrick(cfg.hits, FCOL[cfg.finger]);
+      b.g.position.copy(p);
+      root.add(b.g);
+      const lb = label([{ t: FINGER[cfg.finger], color: FCOL[cfg.finger] }, { t: ` ×${cfg.hits}`, color: "#ffffff" }], 0.24);
+      lb.position.set(p.x, 1.45, p.z);
+      root.add(lb);
+      bricks.push({ ...b, ch, lb, pos: p.clone(), shown: cfg.hits, flashT: -1e9 });
+    })
+  );
+
   // 다리
   const bridges = [];
   map.forEach((row, r) =>
@@ -701,6 +723,7 @@ export function buildWorld(game, si) {
     liquid,
     liquidCells,
     bridges,
+    bricks,
     bats,
     Wto,
     doorList: Object.values(doors),
